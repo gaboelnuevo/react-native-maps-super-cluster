@@ -72,3 +72,68 @@ export const itemToGeoJSONFeature = (item) => ({
   },
   properties: { point_count: 0, item } // eslint-disable-line camelcase
 })
+
+/**
+ * Calculates the haversine distance between point A, and B.
+ * @param {number[]} latlngA [lat, lng] point A
+ * @param {number[]} latlngB [lat, lng] point B
+ * @param {boolean} isMiles If we are using miles, else km.
+ */
+export const haversineDistance = (latlngA, latlngB, isMiles) => {
+  const toRad = x => (x * Math.PI) / 180;
+  const R = 6371; // km
+
+  const dLat = toRad(latlngB[1] - latlngA[1]);
+  const dLatSin = Math.sin(dLat / 2);
+  const dLon = toRad(latlngB[0] - latlngA[0]);
+  const dLonSin = Math.sin(dLon / 2);
+
+  const a = (dLatSin * dLatSin) +
+            (Math.cos(toRad(latlngA[1])) * Math.cos(toRad(latlngB[1])) * dLonSin * dLonSin);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  let distance = R * c;
+
+  if (isMiles) distance /= 1.60934;
+
+  return distance;
+}
+
+/**
+ * Calculate the center/average of multiple GeoLocation coordinates
+ * Expects an array of objects with .latitude and .longitude properties
+ *
+ * @url http://stackoverflow.com/a/14231286/538646
+ */
+export const averageGeolocation = (coords) => {
+  if (coords.length === 1) {
+    return coords[0];
+  }
+
+  let x = 0.0;
+  let y = 0.0;
+  let z = 0.0;
+
+  for (let coord of coords) {
+    let latitude = coord.latitude * Math.PI / 180;
+    let longitude = coord.longitude * Math.PI / 180;
+
+    x += Math.cos(latitude) * Math.cos(longitude);
+    y += Math.cos(latitude) * Math.sin(longitude);
+    z += Math.sin(latitude);
+  }
+
+  let total = coords.length;
+
+  x = x / total;
+  y = y / total;
+  z = z / total;
+
+  let centralLongitude = Math.atan2(y, x);
+  let centralSquareRoot = Math.sqrt(x * x + y * y);
+  let centralLatitude = Math.atan2(z, centralSquareRoot);
+
+  return {
+    latitude: centralLatitude * 180 / Math.PI,
+    longitude: centralLongitude * 180 / Math.PI
+  };
+}

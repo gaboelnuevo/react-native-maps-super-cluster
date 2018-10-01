@@ -9,7 +9,7 @@ import {
   LayoutAnimation
 } from 'react-native'
 // map-related libs
-import MapView from 'react-native-maps'
+import MapView, { Polyline} from 'react-native-maps'
 import SuperCluster from 'supercluster'
 import GeoViewport from '@mapbox/geo-viewport'
 // components / views
@@ -17,8 +17,12 @@ import ClusterMarker from './ClusterMarker'
 // libs / utils
 import {
   regionToBoundingBox,
-  itemToGeoJSONFeature
+  itemToGeoJSONFeature,
+  haversineDistance,
+  averageGeolocation
 } from './util'
+
+import _ from "lodash";
 
 export default class ClusteredMapView extends PureComponent {
 
@@ -39,12 +43,13 @@ export default class ClusteredMapView extends PureComponent {
   }
 
   componentDidMount() {
-    this.clusterize(this.props.data)
+    this.clusterize(this.props.data);
   }
 
   componentWillReceiveProps(nextProps) {
-    if (this.props.data !== nextProps.data)
-      this.clusterize(nextProps.data)
+    if (this.props.data !== nextProps.data) {
+      this.clusterize(nextProps.data.slice());
+    }
   }
 
   componentWillUpdate(nextProps, nextState) {
@@ -70,27 +75,41 @@ export default class ClusteredMapView extends PureComponent {
     })
 
     // get formatted GeoPoints for cluster
-    const rawData = dataset.map(itemToGeoJSONFeature)
+    const rawData = dataset.slice().map(itemToGeoJSONFeature);
 
     // load geopoints into SuperCluster
-    this.index.load(rawData)
+    this.index.load(rawData);
 
     const data = this.getClusters(this.state.region)
-    this.setState({ data })
+    this.setState({ data });
+    this.unspiderfy();
   }
 
   clustersChanged = (nextState) => this.state.data.length !== nextState.data.length
 
   onRegionChangeComplete = (region) => {
-    let data
+    let data;
+
+    let currentZoomLevel = this.getZoomLevel(region);
+    let spiderfiedZoomLevel = this.state.spiderfiedZoomLevel;
+
     if (region.longitudeDelta <= 80) {
       data = this.getClusters(region)
-      this.setState({ region, data }, () => {
-        this.props.onRegionChangeComplete && this.props.onRegionChangeComplete(region, data)
-      })
-    } else {
-      this.props.onRegionChangeComplete && this.props.onRegionChangeComplete(region, data)
+      this.setState({ region, data });
     }
+
+    if (spiderfiedZoomLevel && Math.abs(spiderfiedZoomLevel - currentZoomLevel) >= 1) {
+      this.unspiderfy();
+    }
+
+    this.props.onRegionChangeComplete && this.props.onRegionChangeComplete(region, data);
+  }
+
+  getZoomLevel (region) {
+    let zoomLevel = region && Math.round(
+      Math.log(360 / region.longitudeDelta) / Math.LN2
+    );
+    return zoomLevel;
   }
 
   getClusters = (region) => {
@@ -98,6 +117,92 @@ export default class ClusteredMapView extends PureComponent {
           viewport = (region.longitudeDelta) >= 40 ? { zoom: this.props.minZoom } : GeoViewport.viewport(bbox, this.dimensions)
 
     return this.index.getClusters(bbox, viewport.zoom)
+  }
+
+  onPressMarker = (item) => {
+    let spiderfiedPoints = this.state.spiderfiedPoints;
+    let spiderfiedPoint = spiderfiedPoints && spiderfiedPoints[item.id];
+
+    if (!spiderfiedPoint || (spiderfiedPoint.id != item.id)) {
+      // remenber that the same item is included
+      let pointsOverlapped = this.state.data.filter((d) => {
+        if (d.properties.point_count) return false;
+        return this.isOverlapped(d.properties.item, item);
+      });
+
+      let otherNearPoints = [];
+
+/*       pointsOverlapped.forEach((point) => {
+        this.state.data.forEach((d) => {
+          if (d.properties.point_count) return;
+          if(this.isOverlapped(d.properties.item, point.properties.item)) {
+            otherNearPoints.push(d);
+          }
+        });
+      });
+ */
+      if (pointsOverlapped.length > 1) {
+        this.spiderfy(_.uniqBy(pointsOverlapped.slice().concat(otherNearPoints), (d) => d.properties.item.id));
+      } else {
+        this.unspiderfy();
+      }
+    } else {
+      this.unspiderfy();
+    }
+  }
+
+  unspiderfy() {
+    this.setState({
+      spiderfiedPoints: null,
+      spiderfiedZoomLevel: null,
+      spiderLines: null
+    });
+  }
+
+  spiderfy(pointsOverlapped=[]) {
+    const centerPt = averageGeolocation(pointsOverlapped.map(d => d.properties.item.location));
+    const count = pointsOverlapped.length;
+    const circleStartAngle = Math.PI / 4;
+    const generatePtsCircle = () => {
+      let angleStep = (Math.PI * 2) / count;
+      return pointsOverlapped
+        .map(d => {
+          return d.properties.item;
+        })
+        .map((point, index) => {
+          let angle = circleStartAngle + index * angleStep;
+          let circumference = (this.convertPixelsToKMs(30) * 1000) * (2 + count);
+          let radius = circumference / (Math.PI * 2);
+          return {
+            ...point,
+            origin: centerPt,
+            location: {
+              latitude:
+                centerPt.latitude + ((radius / 111300) * Math.cos(angle)),
+              longitude:
+                centerPt.longitude + ((radius / 111300) * Math.sin(angle))
+            }
+          };
+        });
+    };
+
+    let spiderfiedPoints = generatePtsCircle();
+
+    this.setState({
+      spiderfiedPoints: null
+    }, () => {
+      this.setState({
+        spiderfiedPoints: _.keyBy(spiderfiedPoints, 'id'),
+        spiderfiedZoomLevel: this.getZoomLevel(this.state.region),
+        spiderLines: spiderfiedPoints.map((p) => {
+          return {
+            id: `line-${p.id}`,
+            origin: p.origin,
+            location: p.location
+          }
+        }),
+      });
+    });
   }
 
   onClusterPress = (cluster) => {
@@ -121,6 +226,47 @@ export default class ClusteredMapView extends PureComponent {
     this.props.onClusterPress && this.props.onClusterPress(cluster.properties.cluster_id, markers)
   }
 
+  convertPixelsToKMs (pixels, region=null) {
+    let _region = region || this.state.region;
+    if (_region) {
+      let bbox = regionToBoundingBox(_region);
+      return pixels * (haversineDistance([bbox[1], bbox[0]], [bbox[3], bbox[2]]) / Math.hypot(...this.dimensions));
+    }
+    return null;
+  }
+
+  convertKMsToPixels (kms) {
+    return kms / this.convertPixelsToKMs(1);
+  }
+
+  isOverlapped (p1, p2) {
+    if (p1.location && p2.location) {
+      return haversineDistance([p1.location.latitude, p1.location.longitude], [p2.location.latitude, p2.location.longitude]) <= this.convertPixelsToKMs(15);
+    }
+
+    return false;
+  }
+
+  renderMarker (item) {
+    let spiderfiedPoints = this.state.spiderfiedPoints;
+    let spiderfiedPoint = spiderfiedPoints && spiderfiedPoints[item.id];
+    return this.props.renderMarker(spiderfiedPoint || item, this.onPressMarker, !!spiderfiedPoint);
+  }
+
+  renderSpiderLines () {
+    const lines = this.state.spiderLines || [];
+    return lines.map(line => {
+      return (
+        <Polyline
+          key={`line-${line.id}`}
+          strokeWidth={2}
+          strokeColor={"gray"}
+          coordinates={[line.origin, line.location]}
+        />
+      );
+    })
+  }
+
   render() {
     return (
       <MapView
@@ -130,7 +276,7 @@ export default class ClusteredMapView extends PureComponent {
         {
           this.props.clusteringEnabled && this.state.data.map((d) => {
             if (d.properties.point_count === 0)
-              return this.props.renderMarker(d.properties.item)
+              return this.renderMarker(d.properties.item);
 
             return (
               <ClusterMarker
@@ -150,6 +296,7 @@ export default class ClusteredMapView extends PureComponent {
           !this.props.clusteringEnabled && this.props.data.map(d => this.props.renderMarker(d))
         }
         {this.props.children}
+        {this.renderSpiderLines()}
       </MapView>
     )
   }
