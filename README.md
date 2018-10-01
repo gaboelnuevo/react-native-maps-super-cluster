@@ -1,4 +1,7 @@
-# React Native Super Cluster
+# React Native Super Cluster (+ Overlapping Marker Spiderfier)
+
+A fork of [react-native-maps-super-cluster](https://github.com/novalabio/react-native-maps-super-cluster) with overlapping marker spiderfier.
+
 This module wraps [AirBnB's react-native-maps](https://github.com/airbnb/react-native-maps) and uses [MapBox's SuperCluster](https://github.com/mapbox/supercluster) as clustering engine.
 
 ## Example
@@ -81,7 +84,11 @@ export default class MyClusteredMapView extends Component {
     )
   }
 
-  renderMarker = (data) => <Marker key={data.id || Math.random()} coordinate={data.location} />
+  renderMarker = (data, onPressMarker, isSpiderfied) => {
+    return (
+      <Marker pinColor={isSpiderfied ? "yellow": "red"} onPress={() => onPressMarker(data)} key={data.id} coordinate={data.location} />
+    )
+  }
 
   ...
 
