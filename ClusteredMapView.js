@@ -241,7 +241,7 @@ export default class ClusteredMapView extends PureComponent {
 
   isOverlapped (p1, p2) {
     if (p1.location && p2.location) {
-      return haversineDistance([p1.location.latitude, p1.location.longitude], [p2.location.latitude, p2.location.longitude]) <= this.convertPixelsToKMs(15);
+      return haversineDistance([p1.location.latitude, p1.location.longitude], [p2.location.latitude, p2.location.longitude]) <= this.convertPixelsToKMs(this.props.nearbyDistance || 15);
     }
 
     return false;
