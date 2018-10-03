@@ -53,7 +53,9 @@ export default class ClusteredMapView extends PureComponent {
   }
 
   refreshClusters() {
-    this.clusterize(this.props.data);
+    this.unspiderfy(() => {
+      this.clusterize(this.props.data);
+    })
   }
 
   componentWillUpdate(nextProps, nextState) {
