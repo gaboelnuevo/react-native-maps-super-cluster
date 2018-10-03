@@ -127,6 +127,10 @@ export default class ClusteredMapView extends PureComponent {
     let spiderfiedPoints = this.state.spiderfiedPoints;
     let spiderfiedPoint = spiderfiedPoints && spiderfiedPoints[item.id];
 
+    if(this._isProcessingSpider) return;
+    
+    this._isProcessingSpider = true;
+
     if (!spiderfiedPoint || (spiderfiedPoint.id != item.id)) {
       // remenber that the same item is included
       let pointsOverlapped = this.state.data.filter((d) => {
@@ -146,24 +150,34 @@ export default class ClusteredMapView extends PureComponent {
       });
  */
       if (pointsOverlapped.length > 1) {
-        this.spiderfy(_.uniqBy(pointsOverlapped.slice().concat(otherNearPoints), (d) => d.properties.item.id));
+        requestAnimationFrame(() => {
+          this.spiderfy(_.uniqBy(pointsOverlapped.slice().concat(otherNearPoints), (d) => d.properties.item.id), () => {
+            this._isProcessingSpider = false;
+          });
+        });
       } else {
-        this.unspiderfy();
+        this.unspiderfy(() => {
+          this._isProcessingSpider = false;
+        });
       }
     } else {
-      this.unspiderfy();
+      this.unspiderfy(() => {
+        this._isProcessingSpider = false;
+      });
     }
   }
 
-  unspiderfy() {
+  unspiderfy(cb) {
     this.setState({
       spiderfiedPoints: null,
       spiderfiedZoomLevel: null,
       spiderLines: null
+    }, () => {
+      if (cb) cb();
     });
   }
 
-  spiderfy(pointsOverlapped=[]) {
+  spiderfy(pointsOverlapped=[], cb) {
     const centerPt = averageGeolocation(pointsOverlapped.map(d => d.properties.item.location));
     const count = pointsOverlapped.length;
     const circleStartAngle = Math.PI / 4;
@@ -205,6 +219,8 @@ export default class ClusteredMapView extends PureComponent {
             location: p.location
           }
         }),
+      }, () => {
+        if (cb) cb();
       });
     });
   }
