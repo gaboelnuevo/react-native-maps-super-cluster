@@ -86,7 +86,6 @@ export default class ClusteredMapView extends PureComponent {
 
     const data = this.getClusters(this.state.region)
     this.setState({ data });
-    this.unspiderfy();
   }
 
   clustersChanged = (nextState) => this.state.data.length !== nextState.data.length
